@@ -1,8 +1,8 @@
 # IELTS Reading Master
 
-IELTS Reading Master is a product concept for IELTS reading learners who want to understand articles deeply, build synonym substitution awareness, and memorize high-frequency reading vocabulary and phrases.
+IELTS Reading Master is a web-first IELTS reading learning product for learners who want to understand articles deeply and build synonym substitution awareness.
 
-The project is currently in the product requirements stage. Development should start only after the MVP scope, content source rules, data model, and learning flows are clear.
+The first version focuses on article learning: difficulty-based passages, synonym highlighting, double-click word definitions, long-press sentence translation, and local learning records.
 
 ## Documents
 
@@ -10,8 +10,17 @@ The project is currently in the product requirements stage. Development should s
 
 ## Current Focus
 
-- Define the first usable version of the product.
+- Build a clean web MVP.
+- Keep the first screen as the article learning experience.
 - Separate article comprehension from exam-answering instruction.
-- Design reading, synonym highlighting, vocabulary drills, phrase drills, and learning records.
-- Prepare for both mobile app and future web version.
+- Make synonym substitution highlighting the core IELTS-specific feature.
 
+## Local Preview
+
+Open `index.html` directly in a browser, or run a simple static server:
+
+```bash
+python3 -m http.server 5173
+```
+
+Then visit `http://localhost:5173`.
