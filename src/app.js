@@ -92,7 +92,7 @@ function render() {
         </div>
       </div>
     </header>
-    <main class="main-layout">
+    <main class="main-layout ${selectedArticle ? "is-reading" : ""}">
       <aside class="library-panel">
         <h2 class="section-title">选择难度</h2>
         <div class="difficulty-tabs">
@@ -417,7 +417,6 @@ function showSentenceTranslation(sentenceElement) {
   sentenceElement.classList.add("is-selected-for-translation");
 
   const rect = sentenceElement.getBoundingClientRect();
-  const sentenceText = normalizeSentenceText(sentenceElement.textContent || "");
   const translation = getLocalSentenceTranslation(sentenceElement.dataset.translation || "");
 
   showPopover(
@@ -425,9 +424,7 @@ function showSentenceTranslation(sentenceElement) {
     `
       <div class="popover-title">
         <strong>中文释义</strong>
-        <span>本地释义</span>
       </div>
-      <div class="selected-sentence-text">${escapeHtml(sentenceText)}</div>
       <p class="translation-result">${escapeHtml(translation)}</p>
     `,
     "translation-popover",

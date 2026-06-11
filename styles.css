@@ -351,15 +351,6 @@ button {
   line-height: 1.7;
 }
 
-.selected-sentence-text {
-  margin-bottom: 10px;
-  border-left: 3px solid var(--teal);
-  padding-left: 10px;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.65;
-}
-
 .translation-result {
   color: var(--text) !important;
 }
@@ -454,6 +445,10 @@ button {
 
   .main-layout {
     grid-template-columns: 1fr;
+  }
+
+  .main-layout.is-reading .library-panel {
+    display: none;
   }
 
   .library-panel {
