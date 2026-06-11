@@ -1,10 +1,30 @@
-import { articles, synonymLibrary } from "./data.js";
+import { articles, synonymLibrary } from "./data.js?v=20260611-offline-translations";
 
 const app = document.querySelector("#app");
 const recordKey = "ielts-reading-master-records";
-const synonymByWord = new Map(
-  synonymLibrary.map((item) => [item.headword.toLowerCase(), item]),
-);
+const vocabularyKey = "ielts-reading-master-vocabulary";
+const missingTranslationPattern = /待生成|段落释义|句子释义|暂无精确句子释义|正在生成/;
+const quietAutoHighlightTerms = new Set([
+  "a",
+  "an",
+  "and",
+  "as",
+  "but",
+  "for",
+  "it",
+  "or",
+  "that",
+  "the",
+  "these",
+  "they",
+  "this",
+  "those",
+  "yet",
+]);
+const synonymTermIndex = buildSynonymTermIndex(synonymLibrary);
+const highlightRegex = buildHighlightRegex(synonymTermIndex);
+const localDictionary = globalThis.__LOCAL_DICTIONARIES__?.ecdict || null;
+const localDictionaryByWord = buildLocalDictionaryIndex(localDictionary?.entries || []);
 
 const difficultyLabels = {
   easy: "简单",
@@ -14,7 +34,7 @@ const difficultyLabels = {
 
 const dictionary = new Map([
   ...synonymLibrary.map((item) => [
-    item.headword.toLowerCase(),
+    normalizeTerm(item.headword),
     {
       word: item.headword,
       partOfSpeech: item.partOfSpeech,
@@ -34,16 +54,26 @@ const dictionary = new Map([
   ["structures", { partOfSpeech: "n.", meaningZh: "结构；建筑物" }],
   ["societies", { partOfSpeech: "n.", meaningZh: "社会" }],
 ]);
+const dictionarySourceLabel = localDictionary?.source?.name || "ECDICT";
 
 const state = {
   difficulty: "easy",
   selectedArticleId: null,
   highlightSynonyms: true,
   records: loadRecords(),
+  vocabulary: loadVocabulary(),
   longPressTimer: null,
+  translationAuditStarted: false,
+  translationAudit: {
+    checked: false,
+    missing: 0,
+    scanned: 0,
+    total: 0,
+  },
 };
 
 render();
+startBackgroundTranslationAudit();
 document.addEventListener("click", handleOutsideClick);
 
 function render() {
@@ -56,7 +86,10 @@ function render() {
           <h1 class="brand-title">IELTS Reading Master</h1>
           <p class="brand-subtitle">雅思阅读精读 · 同义替换敏感度训练</p>
         </div>
-        <button class="ghost-button" data-action="reset-records" type="button">清空记录</button>
+        <div class="topbar-actions">
+          <span class="translation-status" data-translation-status hidden></span>
+          <button class="ghost-button" data-action="reset-records" type="button">清空记录</button>
+        </div>
       </div>
     </header>
     <main class="main-layout">
@@ -113,7 +146,7 @@ function renderEmptyReader() {
   return `
     <div class="reader-empty">
       <h2>从左侧选择一篇文章</h2>
-      <p>第一版先专注文章学习。打开文章后，你可以切换同义替换高亮，双击单词查看释义，长按整句查看中文翻译。</p>
+      <p>第一版先专注文章学习。打开文章后，你可以切换同义替换高亮，双击单词查看释义，长按句子查看中文释义。</p>
     </div>
   `;
 }
@@ -132,7 +165,7 @@ function renderReader(article) {
             <span class="pill">学习 ${record.openCount || 0} 次</span>
           </div>
           <h2 class="reader-title">${article.title}</h2>
-          <p class="hint-line">双击单词看释义；长按句子看整句翻译。</p>
+          <p class="hint-line">双击单词看释义；长按句子看中文释义。</p>
         </div>
         <div class="reader-controls">
           <button class="ghost-button" data-action="back" type="button">返回</button>
@@ -157,7 +190,7 @@ function renderParagraph(paragraph, paragraphIndex) {
       const sentenceId = `${paragraphIndex}-${sentenceIndex}`;
       return `
         <span class="sentence" data-sentence-id="${sentenceId}" data-translation="${escapeAttribute(sentence.translation)}">
-          ${renderWords(sentence.text)}
+          ${renderTextWithTerms(sentence.text)}
         </span>
       `;
     })
@@ -166,28 +199,57 @@ function renderParagraph(paragraph, paragraphIndex) {
   return `<p class="paragraph">${sentences}</p>`;
 }
 
-function renderWords(text) {
+function renderTextWithTerms(text) {
+  if (!highlightRegex) {
+    return renderPlainWords(text);
+  }
+
+  let rendered = "";
+  let cursor = 0;
+
+  for (const match of text.matchAll(highlightRegex)) {
+    const matchedText = match[0];
+    const start = match.index || 0;
+
+    if (start > cursor) {
+      rendered += renderPlainWords(text.slice(cursor, start));
+    }
+
+    rendered += renderTermSpan(matchedText, true);
+    cursor = start + matchedText.length;
+  }
+
+  rendered += renderPlainWords(text.slice(cursor));
+  return rendered;
+}
+
+function renderPlainWords(text) {
   const parts = text.match(/[A-Za-z]+(?:-[A-Za-z]+)?|[^A-Za-z]+/g) || [];
 
   return parts
     .map((part) => {
       if (!/^[A-Za-z]/.test(part)) {
-        return part;
+        return escapeHtml(part);
       }
 
-      const normalized = normalizeWord(part);
-      const hasSynonym = synonymByWord.has(normalized);
-      const classes = [
-        "word",
-        hasSynonym ? "has-synonym" : "",
-        hasSynonym && state.highlightSynonyms ? "highlight-on" : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-
-      return `<span class="${classes}" data-word="${normalized}">${part}</span>`;
+      return renderTermSpan(part, false);
     })
     .join("");
+}
+
+function renderTermSpan(text, matchedByHighlightRegex) {
+  const normalized = normalizeTerm(text);
+  const synonym = synonymTermIndex.get(normalized);
+  const canAutoHighlight = matchedByHighlightRegex || shouldAutoHighlightTerm(normalized);
+  const classes = [
+    "word",
+    synonym ? "has-synonym" : "",
+    synonym && canAutoHighlight && state.highlightSynonyms ? "highlight-on" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return `<span class="${classes}" data-term="${escapeAttribute(normalized)}">${escapeHtml(text)}</span>`;
 }
 
 function bindEvents() {
@@ -211,7 +273,7 @@ function bindEvents() {
   });
 
   document.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", () => handleAction(button.dataset.action));
+    button.addEventListener("click", () => handleAction(button.dataset.action, button));
   });
 
   document.querySelectorAll(".word").forEach((wordElement) => {
@@ -234,7 +296,7 @@ function bindEvents() {
 
 }
 
-function handleAction(action) {
+function handleAction(action, button) {
   if (action === "back") {
     state.selectedArticleId = null;
     closePopover();
@@ -252,6 +314,10 @@ function handleAction(action) {
     saveRecords();
     closePopover();
     render();
+  }
+
+  if (action === "add-vocabulary") {
+    addVocabulary(button);
   }
 }
 
@@ -276,48 +342,93 @@ function cancelLongPress() {
 }
 
 function showWordDefinition(wordElement) {
-  const word = wordElement.dataset.word;
-  const synonym = synonymByWord.get(word);
-  const definition = dictionary.get(word) || {
+  clearSelectedSentence();
+
+  const term = wordElement.dataset.term;
+  const synonymMatch = synonymTermIndex.get(term);
+  const synonym = synonymMatch?.entry;
+  const localDefinition = lookupLocalDictionary(term);
+  const fallbackDefinition =
+    dictionary.get(term) ||
+    (synonym
+      ? {
+          partOfSpeech: synonym.partOfSpeech,
+          meaningZh: synonym.meaningZh,
+        }
+      : null);
+  const definition = localDefinition || fallbackDefinition || {
     partOfSpeech: "",
     meaningZh: "暂无内置释义，后续可接入词典或 AI 释义。",
   };
   const rect = wordElement.getBoundingClientRect();
+  const selectedText = wordElement.textContent || term;
+  const synonymTerms = synonym ? uniqueTerms([synonym.headword, ...synonym.substitutions]) : [];
+  const isSaved = Boolean(state.vocabulary[term]);
 
   showPopover(
     rect,
     `
       <div class="popover-title">
-        <strong>${wordElement.textContent}</strong>
-        <span>${definition.partOfSpeech || synonym?.partOfSpeech || ""}</span>
+        <strong>${escapeHtml(selectedText)}</strong>
+        <span>${escapeHtml(definition.phonetic || definition.partOfSpeech || synonym?.partOfSpeech || "")}</span>
       </div>
-      <p>${definition.meaningZh || synonym?.meaningZh}</p>
+      <p>${escapeHtml(definition.meaningZh || synonym?.meaningZh)}</p>
+      ${
+        localDefinition?.englishDefinition
+          ? `<p class="definition-en">${escapeHtml(localDefinition.englishDefinition)}</p>`
+          : ""
+      }
+      ${
+        localDefinition
+          ? `<div class="definition-source">${escapeHtml(dictionarySourceLabel)} 本地词典</div>`
+          : ""
+      }
       ${
         synonym
           ? `
             <div class="synonym-block">
-              <div class="synonym-label">常见同义替换</div>
+              <div class="synonym-label">考点词：${escapeHtml(synonym.headword)}</div>
               <div class="synonym-list">
-                ${synonym.substitutions.map((item) => `<span class="synonym-chip">${item}</span>`).join("")}
+                ${synonymTerms.map((item) => `<span class="synonym-chip">${escapeHtml(item)}</span>`).join("")}
               </div>
             </div>
           `
           : ""
       }
+      <button
+        class="vocabulary-button ${isSaved ? "is-saved" : ""}"
+        data-action="add-vocabulary"
+        data-term="${escapeAttribute(term)}"
+        data-word="${escapeAttribute(selectedText)}"
+        data-phonetic="${escapeAttribute(definition.phonetic || "")}"
+        data-part-of-speech="${escapeAttribute(definition.partOfSpeech || synonym?.partOfSpeech || "")}"
+        data-meaning-zh="${escapeAttribute(definition.meaningZh || synonym?.meaningZh || "")}"
+        data-article-id="${escapeAttribute(state.selectedArticleId || "")}"
+        type="button"
+      >
+        ${isSaved ? "已加入生词本" : "加入生词本"}
+      </button>
     `,
   );
 }
 
 function showSentenceTranslation(sentenceElement) {
+  clearSelectedSentence();
+  sentenceElement.classList.add("is-selected-for-translation");
+
   const rect = sentenceElement.getBoundingClientRect();
+  const sentenceText = normalizeSentenceText(sentenceElement.textContent || "");
+  const translation = getLocalSentenceTranslation(sentenceElement.dataset.translation || "");
+
   showPopover(
     rect,
     `
       <div class="popover-title">
-        <strong>整句释义</strong>
-        <span>AI-style</span>
+        <strong>中文释义</strong>
+        <span>本地释义</span>
       </div>
-      <p>${sentenceElement.dataset.translation}</p>
+      <div class="selected-sentence-text">${escapeHtml(sentenceText)}</div>
+      <p class="translation-result">${escapeHtml(translation)}</p>
     `,
     "translation-popover",
   );
@@ -333,6 +444,10 @@ function showPopover(rect, html, extraClass = "") {
       ${html}
     </div>
   `;
+
+  root.querySelectorAll("[data-action]").forEach((button) => {
+    button.addEventListener("click", () => handleAction(button.dataset.action, button));
+  });
 }
 
 function closePopover() {
@@ -340,6 +455,14 @@ function closePopover() {
   if (root) {
     root.innerHTML = "";
   }
+
+  clearSelectedSentence();
+}
+
+function clearSelectedSentence() {
+  document.querySelectorAll(".sentence.is-selected-for-translation").forEach((item) => {
+    item.classList.remove("is-selected-for-translation");
+  });
 }
 
 function handleOutsideClick(event) {
@@ -405,10 +528,276 @@ function saveRecords() {
   localStorage.setItem(recordKey, JSON.stringify(state.records));
 }
 
+function loadVocabulary() {
+  try {
+    return JSON.parse(localStorage.getItem(vocabularyKey)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveVocabulary() {
+  localStorage.setItem(vocabularyKey, JSON.stringify(state.vocabulary));
+}
+
+function startBackgroundTranslationAudit() {
+  if (state.translationAuditStarted) {
+    return;
+  }
+
+  state.translationAuditStarted = true;
+
+  const sentences = articles.flatMap((article) => article.paragraphs.flat());
+  const chunkSize = 320;
+  let cursor = 0;
+  let missing = 0;
+
+  state.translationAudit.total = sentences.length;
+  updateTranslationStatus();
+
+  function scanChunk() {
+    const end = Math.min(cursor + chunkSize, sentences.length);
+
+    for (let index = cursor; index < end; index += 1) {
+      if (needsLocalTranslation(sentences[index].translation)) {
+        missing += 1;
+      }
+    }
+
+    cursor = end;
+    state.translationAudit.scanned = cursor;
+    state.translationAudit.missing = missing;
+    updateTranslationStatus();
+
+    if (cursor < sentences.length) {
+      window.setTimeout(scanChunk, 24);
+      return;
+    }
+
+    state.translationAudit.checked = true;
+    updateTranslationStatus();
+  }
+
+  window.setTimeout(scanChunk, 120);
+}
+
+function updateTranslationStatus() {
+  const status = document.querySelector("[data-translation-status]");
+  if (!status) {
+    return;
+  }
+
+  if (state.translationAudit.missing > 0) {
+    status.hidden = false;
+    status.textContent = `释义待补 ${state.translationAudit.missing} 句`;
+    status.classList.add("needs-attention");
+    return;
+  }
+
+  status.classList.remove("needs-attention");
+  status.hidden = true;
+}
+
+function getLocalSentenceTranslation(value) {
+  if (needsLocalTranslation(value)) {
+    return "本句中文释义尚未内置，请先运行内容更新脚本生成离线释义。";
+  }
+
+  return value;
+}
+
+function needsLocalTranslation(value) {
+  return !value || missingTranslationPattern.test(value);
+}
+
+function addVocabulary(button) {
+  const term = button?.dataset.term;
+  if (!term) {
+    return;
+  }
+
+  state.vocabulary[term] = {
+    term,
+    word: button.dataset.word || term,
+    phonetic: button.dataset.phonetic || "",
+    partOfSpeech: button.dataset.partOfSpeech || "",
+    meaningZh: button.dataset.meaningZh || "",
+    articleId: button.dataset.articleId || null,
+    savedAt: new Date().toISOString(),
+  };
+  saveVocabulary();
+
+  button.classList.add("is-saved");
+  button.textContent = "已加入生词本";
+}
+
+function normalizeSentenceText(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function buildLocalDictionaryIndex(entries) {
+  const index = new Map();
+
+  entries.forEach((entry) => {
+    const word = normalizeTerm(entry.w || "");
+    if (word && !index.has(word)) {
+      index.set(word, entry);
+    }
+  });
+
+  return index;
+}
+
+function lookupLocalDictionary(term) {
+  const candidates = getLookupCandidates(term);
+
+  for (const candidate of candidates) {
+    const entry = localDictionaryByWord.get(candidate);
+    if (!entry) {
+      continue;
+    }
+
+    return {
+      partOfSpeech: "",
+      phonetic: entry.p ? `/${entry.p}/` : "",
+      meaningZh: shortenDefinition(entry.t || ""),
+      englishDefinition: shortenDefinition(entry.d || ""),
+      sourceWord: entry.w,
+    };
+  }
+
+  return null;
+}
+
+function getLookupCandidates(term) {
+  const normalized = normalizeTerm(term);
+  const candidates = [normalized];
+
+  if (normalized.endsWith("ies") && normalized.length > 4) {
+    candidates.push(`${normalized.slice(0, -3)}y`);
+  }
+
+  if (normalized.endsWith("es") && normalized.length > 3) {
+    candidates.push(normalized.slice(0, -2));
+  }
+
+  if (normalized.endsWith("s") && normalized.length > 3) {
+    candidates.push(normalized.slice(0, -1));
+  }
+
+  if (normalized.endsWith("ing") && normalized.length > 5) {
+    candidates.push(normalized.slice(0, -3));
+    candidates.push(`${normalized.slice(0, -3)}e`);
+  }
+
+  if (normalized.endsWith("ed") && normalized.length > 4) {
+    candidates.push(normalized.slice(0, -2));
+    candidates.push(`${normalized.slice(0, -1)}`);
+  }
+
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function shortenDefinition(value) {
+  return value
+    .replace(/\s+/g, " ")
+    .split(/；|;(?=\s)|\|/)
+    .slice(0, 3)
+    .join("；")
+    .trim();
+}
+
 function normalizeWord(word) {
   return word.toLowerCase().replace(/^[^a-z]+|[^a-z]+$/g, "");
 }
 
+function normalizeTerm(term) {
+  return term
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/\s+/g, " ")
+    .replace(/^[^a-z]+|[^a-z]+$/g, "")
+    .trim();
+}
+
+function buildSynonymTermIndex(entries) {
+  const index = new Map();
+
+  entries.forEach((entry) => {
+    uniqueTerms([entry.headword, ...entry.substitutions]).forEach((term) => {
+      const normalized = normalizeTerm(term);
+      if (!isUsableTerm(normalized) || index.has(normalized)) {
+        return;
+      }
+
+      index.set(normalized, {
+        entry,
+        term,
+      });
+    });
+  });
+
+  return index;
+}
+
+function buildHighlightRegex(index) {
+  const terms = [...index.keys()]
+    .filter(shouldAutoHighlightTerm)
+    .sort((a, b) => b.split(" ").length - a.split(" ").length || b.length - a.length);
+
+  if (!terms.length) {
+    return null;
+  }
+
+  const pattern = terms
+    .map((term) => escapeRegExp(term).replace(/\\ /g, "\\s+"))
+    .join("|");
+
+  return new RegExp(`\\b(?:${pattern})\\b`, "gi");
+}
+
+function shouldAutoHighlightTerm(term) {
+  if (!isUsableTerm(term) || quietAutoHighlightTerms.has(term)) {
+    return false;
+  }
+
+  return term.includes(" ") || term.length >= 4;
+}
+
+function isUsableTerm(term) {
+  return /^[a-z][a-z\s'-]*[a-z]$/.test(term) && !/[….]/.test(term);
+}
+
+function uniqueTerms(terms) {
+  const seen = new Set();
+  const result = [];
+
+  terms.forEach((term) => {
+    const normalized = normalizeTerm(term);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+
+    seen.add(normalized);
+    result.push(term.trim());
+  });
+
+  return result;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function escapeAttribute(value) {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return escapeHtml(value);
 }

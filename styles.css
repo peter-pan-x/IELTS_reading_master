@@ -8,8 +8,7 @@
   --teal: #167c78;
   --teal-soft: #d9eeeb;
   --coral: #bd533d;
-  --amber: #f4d35e;
-  --amber-soft: #fff3bf;
+  --highlight-green: rgba(91, 181, 126, 0.26);
   --green: #4d7c52;
   --shadow: 0 18px 50px rgba(56, 47, 31, 0.12);
 }
@@ -56,6 +55,23 @@ button {
   width: min(1180px, calc(100% - 32px));
   margin: 0 auto;
   padding: 18px 0;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.translation-status {
+  border: 1px solid rgba(189, 83, 61, 0.32);
+  border-radius: 999px;
+  background: rgba(189, 83, 61, 0.08);
+  padding: 6px 10px;
+  color: var(--coral);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .brand {
@@ -282,14 +298,18 @@ button {
   background: rgba(244, 211, 94, 0.2);
 }
 
+.sentence.is-selected-for-translation {
+  background: rgba(91, 181, 126, 0.18);
+  box-shadow: inset 0 -2px 0 rgba(22, 124, 120, 0.28);
+}
+
 .word {
   border-radius: 4px;
   cursor: default;
 }
 
 .word.has-synonym.highlight-on {
-  background: var(--amber-soft);
-  box-shadow: inset 0 -0.42em 0 rgba(244, 211, 94, 0.56);
+  background: var(--highlight-green);
   color: #2b2b2b;
 }
 
@@ -329,6 +349,58 @@ button {
   margin: 0;
   color: var(--text);
   line-height: 1.7;
+}
+
+.selected-sentence-text {
+  margin-bottom: 10px;
+  border-left: 3px solid var(--teal);
+  padding-left: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.translation-result {
+  color: var(--text) !important;
+}
+
+.definition-en {
+  margin-top: 8px !important;
+  color: var(--muted) !important;
+  font-size: 13px;
+}
+
+.definition-source {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.vocabulary-button {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 14px;
+  border: 1px solid rgba(22, 124, 120, 0.38);
+  border-radius: 8px;
+  background: #f2faf8;
+  color: var(--teal);
+  cursor: pointer;
+  font-weight: 700;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.vocabulary-button:hover {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+}
+
+.vocabulary-button.is-saved {
+  border-color: rgba(77, 124, 82, 0.36);
+  background: rgba(91, 181, 126, 0.18);
+  color: var(--green);
 }
 
 .synonym-block {
@@ -373,6 +445,11 @@ button {
   .topbar-inner {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 
   .main-layout {

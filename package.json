@@ -1,0 +1,8 @@
+{
+  "type": "module",
+  "scripts": {
+    "content:update": "node scripts/update-reading-content.mjs",
+    "content:translate": "node scripts/translate-article-sentences.mjs",
+    "content:validate": "node scripts/validate-article-translations.mjs"
+  }
+}
