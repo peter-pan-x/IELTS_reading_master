@@ -240,11 +240,13 @@ function renderPlainWords(text) {
 function renderTermSpan(text, matchedByHighlightRegex) {
   const normalized = normalizeTerm(text);
   const synonym = synonymTermIndex.get(normalized);
+  const isVocabularyWord = Boolean(state.vocabulary[normalized]);
   const canAutoHighlight = matchedByHighlightRegex || shouldAutoHighlightTerm(normalized);
   const classes = [
     "word",
     synonym ? "has-synonym" : "",
     synonym && canAutoHighlight && state.highlightSynonyms ? "highlight-on" : "",
+    isVocabularyWord ? "is-vocabulary-word" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -626,6 +628,7 @@ function addVocabulary(button) {
 
   button.classList.add("is-saved");
   button.textContent = "已加入生词本";
+  render();
 }
 
 function normalizeSentenceText(value) {
