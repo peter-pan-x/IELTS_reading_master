@@ -59,10 +59,12 @@ const dictionarySourceLabel = localDictionary?.source?.name || "ECDICT";
 const state = {
   difficulty: "easy",
   selectedArticleId: null,
+  searchQuery: "",
   highlightSynonyms: true,
   records: loadRecords(),
   vocabulary: loadVocabulary(),
   longPressTimer: null,
+  isComposingSearch: false,
   translationAuditStarted: false,
   translationAudit: {
     checked: false,
@@ -87,6 +89,18 @@ function render() {
           <p class="brand-subtitle">雅思阅读精读 · 同义替换敏感度训练</p>
         </div>
         <div class="topbar-actions">
+          <label class="search-box" for="article-search">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input
+              id="article-search"
+              class="search-input"
+              data-search-input
+              type="search"
+              placeholder="搜索文章 / Search"
+              value="${escapeAttribute(state.searchQuery)}"
+              autocomplete="off"
+            />
+          </label>
           <span class="translation-status" data-translation-status hidden></span>
           <button class="ghost-button" data-action="reset-records" type="button">清空记录</button>
         </div>
@@ -95,6 +109,7 @@ function render() {
     <main class="main-layout ${selectedArticle ? "is-reading" : ""}">
       <aside class="library-panel">
         <h2 class="section-title">选择难度</h2>
+        ${renderSearchSummary()}
         <div class="difficulty-tabs">
           ${Object.entries(difficultyLabels)
             .map(
@@ -121,8 +136,17 @@ function render() {
 }
 
 function renderArticleCards() {
-  return articles
-    .filter((article) => article.difficulty === state.difficulty)
+  const visibleArticles = getVisibleArticles();
+
+  if (!visibleArticles.length) {
+    return `
+      <div class="article-empty">
+        没有找到相关文章
+      </div>
+    `;
+  }
+
+  return visibleArticles
     .map((article) => {
       const record = getRecord(article.id);
       const progress = Math.round(record.progressPercent || 0);
@@ -140,6 +164,45 @@ function renderArticleCards() {
       `;
     })
     .join("");
+}
+
+function renderSearchSummary() {
+  const query = normalizeSearchText(state.searchQuery);
+
+  if (!query) {
+    return "";
+  }
+
+  return `
+    <div class="search-summary">
+      全部难度搜索结果 ${getVisibleArticles().length} 篇
+    </div>
+  `;
+}
+
+function getVisibleArticles() {
+  const query = normalizeSearchText(state.searchQuery);
+
+  if (!query) {
+    return articles.filter((article) => article.difficulty === state.difficulty);
+  }
+
+  return articles.filter((article) => getArticleSearchText(article).includes(query));
+}
+
+function getArticleSearchText(article) {
+  return normalizeSearchText(
+    [
+      article.title,
+      article.topic,
+      difficultyLabels[article.difficulty],
+      article.wordCount,
+      article.paragraphs
+        .flat()
+        .map((sentence) => `${sentence.text} ${sentence.translation}`)
+        .join(" "),
+    ].join(" "),
+  );
 }
 
 function renderEmptyReader() {
@@ -255,6 +318,22 @@ function renderTermSpan(text, matchedByHighlightRegex) {
 }
 
 function bindEvents() {
+  const searchInput = document.querySelector("[data-search-input]");
+  searchInput?.addEventListener("compositionstart", () => {
+    state.isComposingSearch = true;
+  });
+  searchInput?.addEventListener("compositionend", () => {
+    state.isComposingSearch = false;
+    updateSearchQuery(searchInput.value);
+  });
+  searchInput?.addEventListener("input", () => {
+    if (state.isComposingSearch) {
+      return;
+    }
+
+    updateSearchQuery(searchInput.value);
+  });
+
   document.querySelectorAll("[data-difficulty]").forEach((button) => {
     button.addEventListener("click", () => {
       state.difficulty = button.dataset.difficulty;
@@ -321,6 +400,21 @@ function handleAction(action, button) {
   if (action === "add-vocabulary") {
     addVocabulary(button);
   }
+
+  if (action === "remove-vocabulary") {
+    removeVocabulary(button);
+  }
+}
+
+function updateSearchQuery(value) {
+  state.searchQuery = value;
+  state.selectedArticleId = null;
+  closePopover();
+  render();
+
+  const nextInput = document.querySelector("[data-search-input]");
+  nextInput?.focus();
+  nextInput?.setSelectionRange(nextInput.value.length, nextInput.value.length);
 }
 
 function startLongPress(sentenceElement) {
@@ -399,7 +493,7 @@ function showWordDefinition(wordElement) {
       }
       <button
         class="vocabulary-button ${isSaved ? "is-saved" : ""}"
-        data-action="add-vocabulary"
+        data-action="${isSaved ? "remove-vocabulary" : "add-vocabulary"}"
         data-term="${escapeAttribute(term)}"
         data-word="${escapeAttribute(selectedText)}"
         data-phonetic="${escapeAttribute(definition.phonetic || "")}"
@@ -408,7 +502,7 @@ function showWordDefinition(wordElement) {
         data-article-id="${escapeAttribute(state.selectedArticleId || "")}"
         type="button"
       >
-        ${isSaved ? "已加入生词本" : "加入生词本"}
+        ${isSaved ? "移出生词本" : "加入生词本"}
       </button>
     `,
   );
@@ -627,7 +721,19 @@ function addVocabulary(button) {
   saveVocabulary();
 
   button.classList.add("is-saved");
-  button.textContent = "已加入生词本";
+  button.textContent = "移出生词本";
+  render();
+}
+
+function removeVocabulary(button) {
+  const term = button?.dataset.term;
+  if (!term) {
+    return;
+  }
+
+  delete state.vocabulary[term];
+  saveVocabulary();
+  closePopover();
   render();
 }
 
@@ -718,6 +824,10 @@ function normalizeTerm(term) {
     .replace(/\s+/g, " ")
     .replace(/^[^a-z]+|[^a-z]+$/g, "")
     .trim();
+}
+
+function normalizeSearchText(value = "") {
+  return String(value).toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 function buildSynonymTermIndex(entries) {

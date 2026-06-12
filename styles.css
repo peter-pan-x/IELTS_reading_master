@@ -64,6 +64,49 @@ button {
   gap: 10px;
 }
 
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(340px, 36vw);
+  min-height: 40px;
+  border: 1px solid rgba(111, 98, 71, 0.2);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.92);
+  padding: 0 12px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background 160ms ease;
+}
+
+.search-box:focus-within {
+  border-color: rgba(22, 124, 120, 0.58);
+  background: var(--surface-strong);
+  box-shadow: 0 0 0 3px rgba(22, 124, 120, 0.1);
+}
+
+.search-icon {
+  color: var(--teal);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.search-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.search-input::placeholder {
+  color: rgba(109, 106, 99, 0.75);
+}
+
 .translation-status {
   border: 1px solid rgba(189, 83, 61, 0.32);
   border-radius: 999px;
@@ -122,6 +165,13 @@ button {
   margin-bottom: 14px;
 }
 
+.search-summary {
+  margin: -6px 0 12px;
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .tab-button,
 .ghost-button,
 .toggle-button {
@@ -155,6 +205,16 @@ button {
 .article-list {
   display: grid;
   gap: 10px;
+}
+
+.article-empty {
+  border: 1px dashed rgba(111, 98, 71, 0.28);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.58);
+  padding: 18px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
 }
 
 .article-card {
@@ -404,6 +464,12 @@ button {
   color: var(--green);
 }
 
+.vocabulary-button.is-saved:hover {
+  border-color: rgba(189, 83, 61, 0.42);
+  background: rgba(189, 83, 61, 0.08);
+  color: var(--coral);
+}
+
 .synonym-block {
   margin-top: 12px;
   border-top: 1px solid var(--line);
@@ -450,7 +516,13 @@ button {
 
   .topbar-actions {
     width: 100%;
+    align-items: stretch;
     justify-content: space-between;
+  }
+
+  .search-box {
+    flex: 1;
+    width: auto;
   }
 
   .main-layout {
@@ -493,5 +565,13 @@ button {
 
   .difficulty-tabs {
     grid-template-columns: 1fr;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+  }
+
+  .search-box {
+    flex-basis: 100%;
   }
 }
