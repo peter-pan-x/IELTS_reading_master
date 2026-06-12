@@ -3,6 +3,9 @@ import { articles, synonymLibrary } from "./data.js?v=20260611-offline-translati
 const app = document.querySelector("#app");
 const recordKey = "ielts-reading-master-records";
 const vocabularyKey = "ielts-reading-master-vocabulary";
+const readerFontSizeKey = "ielts-reading-master-reader-font-size";
+const readerFontSizes = [18, 20, 21, 23, 25];
+const defaultReaderFontSize = 21;
 const missingTranslationPattern = /待生成|段落释义|句子释义|暂无精确句子释义|正在生成/;
 const quietAutoHighlightTerms = new Set([
   "a",
@@ -63,6 +66,7 @@ const state = {
   highlightSynonyms: true,
   records: loadRecords(),
   vocabulary: loadVocabulary(),
+  readerFontSize: loadReaderFontSize(),
   longPressTimer: null,
   isComposingSearch: false,
   translationAuditStarted: false,
@@ -232,6 +236,25 @@ function renderReader(article) {
         </div>
         <div class="reader-controls">
           <button class="ghost-button" data-action="back" type="button">返回</button>
+          <div class="font-size-control" aria-label="阅读字号">
+            <button
+              class="font-size-button"
+              data-action="decrease-font"
+              type="button"
+              ${state.readerFontSize <= readerFontSizes[0] ? "disabled" : ""}
+            >
+              A-
+            </button>
+            <span class="font-size-value">${state.readerFontSize}</span>
+            <button
+              class="font-size-button"
+              data-action="increase-font"
+              type="button"
+              ${state.readerFontSize >= readerFontSizes[readerFontSizes.length - 1] ? "disabled" : ""}
+            >
+              A+
+            </button>
+          </div>
           <button class="toggle-button ${state.highlightSynonyms ? "is-active" : ""}" data-action="toggle-highlight" type="button">
             同义替换 ${state.highlightSynonyms ? "开" : "关"}
           </button>
@@ -240,7 +263,7 @@ function renderReader(article) {
       <div class="progress-wrap" aria-label="reading progress">
         <div class="progress-bar" style="width: ${Math.round(record.progressPercent || 0)}%"></div>
       </div>
-      <div class="article-body">
+      <div class="article-body" style="--reader-font-size: ${state.readerFontSize}px">
         ${article.paragraphs.map((paragraph, paragraphIndex) => renderParagraph(paragraph, paragraphIndex)).join("")}
       </div>
     </article>
@@ -390,6 +413,14 @@ function handleAction(action, button) {
     render();
   }
 
+  if (action === "decrease-font") {
+    adjustReaderFontSize(-1);
+  }
+
+  if (action === "increase-font") {
+    adjustReaderFontSize(1);
+  }
+
   if (action === "reset-records") {
     state.records = {};
     saveRecords();
@@ -404,6 +435,17 @@ function handleAction(action, button) {
   if (action === "remove-vocabulary") {
     removeVocabulary(button);
   }
+}
+
+function adjustReaderFontSize(direction) {
+  const currentIndex = readerFontSizes.indexOf(state.readerFontSize);
+  const safeIndex = currentIndex >= 0 ? currentIndex : readerFontSizes.indexOf(defaultReaderFontSize);
+  const nextIndex = Math.min(readerFontSizes.length - 1, Math.max(0, safeIndex + direction));
+
+  state.readerFontSize = readerFontSizes[nextIndex];
+  saveReaderFontSize();
+  closePopover();
+  render();
 }
 
 function updateSearchQuery(value) {
@@ -443,7 +485,7 @@ function showWordDefinition(wordElement) {
   const term = wordElement.dataset.term;
   const synonymMatch = synonymTermIndex.get(term);
   const synonym = synonymMatch?.entry;
-  const localDefinition = lookupLocalDictionary(term);
+  const localDefinition = lookupContextDictionary(wordElement, term) || lookupLocalDictionary(term);
   const fallbackDefinition =
     dictionary.get(term) ||
     (synonym
@@ -460,6 +502,10 @@ function showWordDefinition(wordElement) {
   const selectedText = wordElement.textContent || term;
   const synonymTerms = synonym ? uniqueTerms([synonym.headword, ...synonym.substitutions]) : [];
   const isSaved = Boolean(state.vocabulary[term]);
+  const matchedSource =
+    localDefinition?.sourceWord && localDefinition.sourceWord !== term
+      ? `匹配：${localDefinition.sourceWord} · `
+      : "";
 
   showPopover(
     rect,
@@ -476,7 +522,7 @@ function showWordDefinition(wordElement) {
       }
       ${
         localDefinition
-          ? `<div class="definition-source">${escapeHtml(dictionarySourceLabel)} 本地词典</div>`
+          ? `<div class="definition-source">${escapeHtml(matchedSource)}${escapeHtml(dictionarySourceLabel)} 本地词典</div>`
           : ""
       }
       ${
@@ -633,6 +679,15 @@ function saveVocabulary() {
   localStorage.setItem(vocabularyKey, JSON.stringify(state.vocabulary));
 }
 
+function loadReaderFontSize() {
+  const stored = Number(localStorage.getItem(readerFontSizeKey));
+  return readerFontSizes.includes(stored) ? stored : defaultReaderFontSize;
+}
+
+function saveReaderFontSize() {
+  localStorage.setItem(readerFontSizeKey, String(state.readerFontSize));
+}
+
 function startBackgroundTranslationAudit() {
   if (state.translationAuditStarted) {
     return;
@@ -763,16 +818,55 @@ function lookupLocalDictionary(term) {
       continue;
     }
 
-    return {
-      partOfSpeech: "",
-      phonetic: entry.p ? `/${entry.p}/` : "",
-      meaningZh: shortenDefinition(entry.t || ""),
-      englishDefinition: shortenDefinition(entry.d || ""),
-      sourceWord: entry.w,
-    };
+    return formatDictionaryEntry(entry);
   }
 
   return null;
+}
+
+function lookupContextDictionary(wordElement, term) {
+  const sentenceElement = wordElement.closest(".sentence");
+  if (!sentenceElement) {
+    return null;
+  }
+
+  const tokens = getSentenceLookupTokens(sentenceElement.textContent || "");
+  const normalizedTerm = normalizeTerm(term);
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index] !== normalizedTerm) {
+      continue;
+    }
+
+    const candidates = [];
+    for (let size = 4; size >= 2; size -= 1) {
+      for (let start = Math.max(0, index - size + 1); start <= index; start += 1) {
+        const phraseTokens = tokens.slice(start, start + size);
+        if (phraseTokens.length === size && phraseTokens.includes(normalizedTerm)) {
+          candidates.push(phraseTokens.join(" "));
+        }
+      }
+    }
+
+    for (const candidate of candidates) {
+      const entry = localDictionaryByWord.get(candidate);
+      if (entry) {
+        return formatDictionaryEntry(entry, "短语");
+      }
+    }
+  }
+
+  return null;
+}
+
+function formatDictionaryEntry(entry, partOfSpeech = "") {
+  return {
+    partOfSpeech,
+    phonetic: entry.p ? `/${entry.p}/` : "",
+    meaningZh: shortenDefinition(entry.t || ""),
+    englishDefinition: shortenDefinition(entry.d || ""),
+    sourceWord: entry.w,
+  };
 }
 
 function getLookupCandidates(term) {
@@ -815,6 +909,12 @@ function shortenDefinition(value) {
 
 function normalizeWord(word) {
   return word.toLowerCase().replace(/^[^a-z]+|[^a-z]+$/g, "");
+}
+
+function getSentenceLookupTokens(value) {
+  return (value.match(/[A-Za-z]+(?:[-'][A-Za-z]+)*/g) || [])
+    .map((token) => normalizeTerm(token))
+    .filter(Boolean);
 }
 
 function normalizeTerm(term) {

@@ -324,6 +324,64 @@ button {
   padding: 0 14px;
 }
 
+.reader-controls .ghost-button,
+.reader-controls .toggle-button {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.reader-controls .toggle-button.is-active {
+  border-color: rgba(22, 124, 120, 0.28);
+  background: rgba(217, 238, 235, 0.62);
+  color: #44635f;
+}
+
+.font-size-control {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  overflow: hidden;
+  border: 1px solid rgba(111, 98, 71, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 253, 248, 0.88);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.54);
+}
+
+.font-size-button {
+  min-width: 42px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: #58716d;
+  cursor: pointer;
+  font-weight: 500;
+  letter-spacing: 0;
+  transition:
+    background 160ms ease,
+    color 160ms ease;
+}
+
+.font-size-button:hover:not(:disabled) {
+  background: var(--teal-soft);
+  color: #315f5b;
+}
+
+.font-size-button:disabled {
+  cursor: not-allowed;
+  color: rgba(109, 106, 99, 0.42);
+}
+
+.font-size-value {
+  min-width: 34px;
+  border-right: 1px solid rgba(111, 98, 71, 0.16);
+  border-left: 1px solid rgba(111, 98, 71, 0.16);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 40px;
+  text-align: center;
+}
+
 .progress-wrap {
   width: 100%;
   height: 5px;
@@ -339,13 +397,14 @@ button {
 
 .article-body {
   padding: 28px;
+  font-size: var(--reader-font-size, 21px);
 }
 
 .paragraph {
   margin: 0 0 24px;
   font-family:
     Georgia, "Times New Roman", Times, serif;
-  font-size: 21px;
+  font-size: inherit;
   line-height: 1.86;
 }
 
@@ -546,8 +605,8 @@ button {
     width: 100%;
   }
 
-  .paragraph {
-    font-size: 19px;
+  .font-size-control {
+    order: 3;
   }
 }
 
